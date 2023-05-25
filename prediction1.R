@@ -1,8 +1,9 @@
 library(quantmod)
 library(highcharter) #Interactive Plot
 library(tidyverse)
+library(caret)
 
-price_bbri <- getSymbols("BBRI.JK", auto.assign=FALSE, from="2014-01-01", to="2023-05-18")
+price_bbri <- getSymbols("BBRI.JK", auto.assign=FALSE, from="2014-01-01", to="2023-05-19")
 
 # process to replace NA´s with the Last Non-Missing Value
 price_bbri <- data.frame(price_bbri)
@@ -16,6 +17,7 @@ chartSeries(price_bbri, name = "BBRI Price 2014-2023")
 
 # Take only the closing price
 closing_pr <- Cl(to.monthly(price_bbri))
+closing_minuto <- Cl(to.hourly(price_bbri))
 
 # Decompose it
 dc <- decompose(as.ts(closing_pr, start=c(2014,1)))
@@ -33,9 +35,9 @@ highchart(type="stock") %>%
 
 
 # Fetch BBNI, BMRI, and IHSG stock prices
-price_bbni <- getSymbols("BBNI.JK",auto.assign=FALSE,from="2014-01-01",to="2023-05-18")
-price_bmri <- getSymbols("BMRI.JK",auto.assign=FALSE,from="2014-01-01",to="2023-05-18")
-price_ihsg <- getSymbols("^JKSE",auto.assign=FALSE,from="2014-01-01",to="2023-05-18")
+price_bbni <- getSymbols("BBNI.JK",auto.assign=FALSE,from="2014-01-01",to="2023-05-19")
+price_bmri <- getSymbols("BMRI.JK",auto.assign=FALSE,from="2014-01-01",to="2023-05-19")
+price_ihsg <- getSymbols("^JKSE",auto.assign=FALSE,from="2014-01-01",to="2023-05-19")
 
 # process to replace NA´s with the Last Non-Missing Value
 price_bbni <- data.frame(price_bbni)
@@ -81,9 +83,15 @@ charts.PerformanceSummary(returns,main="Daily Return BBRI vs BBNI vs BMRI 2014-2
 
 # ___Splitting The Data___
 # Number of period we want to forecast
-n <- 100
+n <- 10
 
 # Splitting the data
+y <- Cl(price_bbri) |> data.frame() |> select(BBRI.JK.Close)
+y <- y$BBRI.JK.Close
+test_index <- createDataPartition(y, times = 1, p = 0.01, list = FALSE)
+test1 <- Cl(price_bbri) |> data.frame() |> slice(test_index)
+train1 <- Cl(price_bbri) |> data.frame() |> slice(-test_index)
+
 train <- head(Cl(price_bbri), length(Cl(price_bbri))-n)
 test <- tail(Cl(price_bbri), n)
 
@@ -93,13 +101,37 @@ library(forecast)
 # Forecast the data
 fc_na <- naive(train, h=n)
 
+# Plot and summarize the forecasts
+autoplot(fc_na)
+summary(fc_na)
+
+# Use snaive() to forecast the ausbeer series
+fcbeer <- snaive(test, h = 20)
+
+# Plot and summarize the forecasts
+autoplot(fcbeer)
+summary(fcbeer)
+
+# 2. ____ARIMA MODEL____
+# Create the Model
+model_non <- auto.arima(train, seasonal=FALSE)
+
+# Forecast n periods of the data
+fc_non <- forecast(model_non, h=n)
+
 # Plot the result
-autoplot(fc_na) +
-  autolayer(ts(test, start=length(train)), series = "Test Data")
+autoplot(fc_non)+
+  autolayer(ts(test, start= length(train)), series="Test Data")
 
+# Create the Model
+model_s <- auto.arima(train)
 
+# Forecast n periods of the data
+fc_s <- forecast(model_s, h=n)
 
-
+# Plot the result
+autoplot(fc_s)+
+  autolayer(ts(test, start= length(train)), series="Test Data")
 
 
 
