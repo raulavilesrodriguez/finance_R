@@ -5,13 +5,17 @@ library(TTR)
 library(PerformanceAnalytics)
 library("IRdisplay")
 library(highcharter) #Interactive Plot
+library(devtools)
+library(yahoofinancer)
 
 # ___Inputs___
-from <- "2014-01-01"
-to <- "2023-05-19"
+from <- "2023-05-23"
+to <- "2023-05-26"
 
 getSymbols(c("AMZN","DAL"))
-getSymbols("AAPL",from=from,src="yahoo")
+getSymbols("AAPL",from=from, to=to, src="yahoo", interval = "1m")
+aapl <- Ticker$new('AAPL')
+AAPL <- aapl$get_history(start = from, end = to, interval = '1m')
 
 df <- AMZN
 head(df)
@@ -55,6 +59,7 @@ macd <- results[[1]]
 rsi <- results[[2]]
 tail(macd)
 
+# Plot data
 options(repr.plot.width = 6, repr.plot.height = 3)
 chartSeries(df, subset = "2018::2018-06",
             theme="white",  
@@ -120,7 +125,21 @@ highchart(type="stock") %>%
   hc_add_series(strategy1, name="Estrategia_1", yAxis = 1, color = "#5C469C") %>%
   hc_title(text= paste0("<b>", colnames(df)[4], "Price Candle Stick Chart</b>"))
 
+chartSeries(df, subset = "2022-01::2023-05-19")
+addTA(strategy1, type='S',col='red')
+addTA(strategy2, type='S',col='#FFE569')
+addTA(strategy3, type='S',col='#FDCEDF')
 
+# Charting return strategies
+return_df <- dailyReturn(Cl(df))
+strategy1.ret <- return_df * strategy1
+names(strategy1.ret) <- 'Estrategy 1'
+strategy2.ret <- return_df * strategy2
+names(strategy2.ret) <- 'Estrategy 2'
+strategy3.ret <- return_df * strategy3
+names(strategy3.ret) <- 'Estrategy 3'
+retall <- cbind(strategy1.ret, strategy2.ret, strategy3.ret)
+charts.PerformanceSummary(retall, main = "Compararing Strategies")
 
 
 
