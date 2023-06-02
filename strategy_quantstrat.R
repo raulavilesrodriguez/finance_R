@@ -53,13 +53,13 @@ rm.strat("luxor")
 #Initiate portfolio
 initPortf(name=portfolio.st, 
           symbols=symbols, 
-          initDate=initDate, 
+          #initDate=initDate, 
           currency='USD')
 
 #Initiate account
 initAcct(name=account.st, 
          portfolios=portfolio.st,    
-         initDate=initDate, 
+         #initDate=initDate, 
          currency='USD', 
          initEq=initEq)
 
@@ -94,19 +94,19 @@ add.signal(strategy.st, name='sigCrossover',
              columns=c("nFast","nSlow"),
              relationship="gte"
            ),
-           label='long'
+           label='buy'
 )
 add.signal(strategy.st, name='sigCrossover',
            arguments = list(
              columns=c("nFast","nSlow"),
              relationship="lt"
            ),
-           label='short'
+           label='sell'
 )
 
 ### rules
 add.rule(strategy.st, name='ruleSignal',
-         arguments=list(sigcol='short', sigval=TRUE,
+         arguments=list(sigcol='sell', sigval=TRUE,
                         orderside='long' ,
                         ordertype='market',
                         orderqty='all',
@@ -117,7 +117,7 @@ add.rule(strategy.st, name='ruleSignal',
 )
 
 add.rule(strategy.st, name='ruleSignal',
-         arguments=list(sigcol='long' , sigval=TRUE,
+         arguments=list(sigcol='buy' , sigval=TRUE,
                         orderside='long' ,
                         ordertype='market', 
                         orderqty=orderqty,
