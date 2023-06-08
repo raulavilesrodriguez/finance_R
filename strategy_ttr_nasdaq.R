@@ -6,10 +6,10 @@ library(PerformanceAnalytics)
 library("IRdisplay")
 library(highcharter) #Interactive Plot
 library(yahoofinancer)
-#library(lubridate)
+library(lubridate)
 library(rvest)
 library(httr)
-
+#conflict_prefer("%>%", "dplyr") # to avoid conflicts with library(sets)
 
 #---load data for a list of stocks---
 # Web scraping to obtain symbols of stocks
@@ -74,10 +74,10 @@ head(prices)
 summary(prices)
 
 #Interactive Plot
-highchart(type="stock") %>% 
-  hc_add_series(prices[,1:6]) %>% 
-  hc_add_series(SMA((Cl(prices)),n=12),name="SMA(12)") %>% 
-  hc_add_series(SMA((Cl(prices)),n=26),name="SMA(26)") %>%
+highchart(type="stock") |> 
+  hc_add_series(prices[,1:6]) |> 
+  hc_add_series(SMA((Cl(prices)),n=12),name="SMA(12)") |> 
+  hc_add_series(SMA((Cl(prices)),n=26),name="SMA(26)") |>
   hc_title(text=paste0("<b>Prices company: ", symbols[which(symbols$Symbol == stock),1], "</b>"))
 
 chartSeries(prices[,1:6], subset = "2022-01::2023-06-05")
@@ -89,9 +89,63 @@ charts.PerformanceSummary(
   main=paste(stock,"Performancesummary")
 )
 
+#_____STRATEGY_____
+# Signals definition
+signal_variables <- prices[,c('Adjusted')]
 
+# signal MACD
+signal_variables$macd_signal <- ifelse(prices$macd_value > prices$macd_signal, 1, -1)
+table(signal_variables$macd_signal)
+# we will assume 33 low and 66 high to MACD fuzzy
+signal_variables$macd_signal_fuzzy <- signal_variables$macd_signal
+signal_variables$macd_signal_fuzzy[which(signal_variables$macd_signal_fuzzy == 1)] <- 66
+signal_variables$macd_signal_fuzzy[which(signal_variables$macd_signal_fuzzy == -1)] <- 33
 
+# signal RSI
+signal_variables$rsi_signal <- ifelse(prices$rsi > 70, 1, 0)
+signal_variables$rsi_signal <- ifelse(prices$rsi < 30, -1, signal_variables$rsi_signal)
+table(signal_variables$rsi_signal)
+# values are ready scaled between 0 and 100 to RSI fuzzy
+signal_variables$rsi_signal_fuzzy <- prices$rsi
 
+# signal SO
+signal_variables$so_signal <- ifelse(prices$so > 80, 1, 0)
+signal_variables$so_signal <- ifelse(prices$so < 20, -1, signal_variables$so_signal)
+table(signal_variables$so_signal)
+# values are ready scaled between 0 and 100 to SO fuzzy
+signal_variables$so_signal_fuzzy <- prices$so
 
+# signal OBV
+signal_variables$obv_signal <- ifelse(prices$ema > lag(prices$ema), 1, -1)
+table(signal_variables$obv_signal)
+# we will assume 33 low and 66 high to OBV fuzzy
+signal_variables$obv_signal_fuzzy <- signal_variables$obv_signal
+signal_variables$obv_signal_fuzzy[which(signal_variables$obv_signal_fuzzy == 1)] <- 66
+signal_variables$obv_signal_fuzzy[which(signal_variables$obv_signal_fuzzy == -1)] <- 33
+
+# signal SEMIDEV fuzzy
+# long (buy) when below the 33th percentile, short (sell) when above the 66th
+signal_variables$semidev_signal_fuzzy <- 50
+signal_variables$semidev_signal_fuzzy[which(prices$semidev > quantile(prices$semidev, 0.7, na.rm = T))] <- 70
+signal_variables$semidev_signal_fuzzy[which(prices$semidev < quantile(prices$semidev, 0.3, na.rm = T))] <- 30
+table(signal_variables$semidev_signal_fuzzy)
+
+tail(signal_variables)
+
+#signal_variables[is.na(signal_variables)] <- 0
+
+#------FUZZY MODEL---------
+library(sets)
+
+# assuming all values are between 1 and 100
+sets_options("universe", seq(1, 100, 0.1))
+
+sd_macd_fuzzy <- sd(na.omit(signal_variables$macd_signal_fuzzy))
+
+variables <- set(
+  macd = fuzzy_partition(varnames = c(low = 33, high = 66), sd = 4.99),
+  rsi = fuzzy_partition(varnames = c(low = 15, med = 50, high = 85), sd = 5.0),
+  
+)
 
 
