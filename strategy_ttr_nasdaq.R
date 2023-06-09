@@ -23,7 +23,7 @@ class(tabla)
 symbols <- tabla |> select(Company, Symbol)
 
 # ___Inputs___
-from <- "2019-01-01"
+from <- "2020-01-01"
 to <- "2023-06-05"
 
 stock <- symbols$Symbol[sample(1:nrow(symbols),1)]
@@ -37,7 +37,7 @@ prices <- getSymbols(stock,from=from, to=to, src="yahoo", env = NULL)
 class(market)
 class(prices)
 colnames(prices) <- c('Open','High','Low','Close','Volume','Adjusted')
-colnames(market) <- c('Open','High','Low','Close','Volume','Adjusted')
+#colnames(market) <- c('Open','High','Low','Close','Volume','Adjusted')
 
 
 # Calculus of indicators
@@ -89,7 +89,7 @@ charts.PerformanceSummary(
   main=paste(stock,"Performancesummary")
 )
 
-#_____STRATEGY_____
+#-------STRATEGY-------
 # Signals definition
 signal_variables <- prices[,c('Adjusted')]
 
@@ -142,10 +142,115 @@ sets_options("universe", seq(1, 100, 0.1))
 
 sd_macd_fuzzy <- sd(na.omit(signal_variables$macd_signal_fuzzy))
 
+# Fuzzy variables
 variables <- set(
   macd = fuzzy_partition(varnames = c(low = 33, high = 66), sd = 4.99),
   rsi = fuzzy_partition(varnames = c(low = 15, med = 50, high = 85), sd = 5.0),
-  
+  so = fuzzy_partition(varnames = c(low = 10, med = 50, high = 90), sd = 5.0),
+  obv = fuzzy_partition(varnames = c(low = 33, high = 66), sd = 4.98),
+  semidev = fuzzy_partition(varnames = c(low = 30, med = 50, high = 70), sd = 5.0),
+  signal = fuzzy_partition(varnames = c(sell = 10, hold = 50, buy = 90), FUN = fuzzy_cone, radius = 10)
 )
+
+# Fuzzy rules
+rules<-set(
+  fuzzy_rule(macd %is% high && rsi %is% low && so %is% low && obv %is% high, signal %is%
+               buy),
+  
+  fuzzy_rule(macd %is% low && rsi %is% high && so %is% high && obv %is% low, signal %is%
+               buy),
+  
+  fuzzy_rule(macd %is% high && rsi %is% med && so %is% med && obv %is% high , signal %is%
+               buy),
+  
+  fuzzy_rule(macd %is% low && rsi %is% med && so %is% high && obv %is% low , signal %is%
+               sell),
+  
+  fuzzy_rule(rsi %is% high && so %is% low && obv %is% low , signal %is% sell),
+  
+  fuzzy_rule(macd %is% low && rsi %is% high && so %is% high , signal %is% sell),
+  fuzzy_rule(macd %is% low && rsi %is% high && so %is% med , signal %is% hold),
+  
+  fuzzy_rule(macd %is% high && rsi %is% med && so %is% med && obv %is% low , signal %is%
+               hold)
+)
+
+# fuzzy model
+model<-fuzzy_system(variables,rules)
+model
+plot(model)
+
+#----Applying model to current data----
+start_time <- Sys.time()
+
+# Buy=1, Hold = 0, Sell = -1
+final_signal <- c()
+for (i in 1:nrow(signal_variables)) {
+  if(any(is.na(signal_variables[i,]))){
+    final_signal[i] <- 50
+  } else {
+    v1 <- as.numeric(signal_variables[i,]$macd_signal_fuzzy)
+    v2 <- round(as.numeric(signal_variables[i,]$rsi_signal_fuzzy))
+    v3 <- round(as.numeric(signal_variables[i,]$so_signal_fuzzy))
+    v4 <- round(as.numeric(signal_variables[i,]$obv_signal_fuzzy))
+    
+    res <- fuzzy_inference(model, list(macd = v1, rsi = v2, so = v3, obv = v4))
+    final_signal[i] <- gset_defuzzify(res, "largestofmax")
+  }
+}
+
+end_time <- Sys.time()
+delta_time <- end_time - start_time
+delta_time
+
+prices$final_signal <- final_signal
+# correction for - Inf
+prices$final_signal[which(is.infinite(prices$final_signal))] <- 50
+summary(prices$final_signal)
+table(prices$final_signal)
+
+# Conversion to buy, hold, sell
+prices$final_signal_adj <- ifelse(prices$final_signal <=20, -1, prices$final_signal )
+prices$final_signal_adj <- ifelse(prices$final_signal_adj>61, 1, prices$final_signal_adj)
+prices$final_signal_adj[prices$final_signal_adj !=1 & prices$final_signal_adj !=-1] <- 0
+table(prices$final_signal_adj)
+
+prices <- cbind(prices, market)
+
+# RETURNS
+# when it is -1 we sell, when 0 invert in NDX, when 1, we buy current stock
+optimized_return <- c(0)
+for(i in 2:nrow(prices)){
+  if(prices$final_signal_adj[i-1]==0){
+    optimized_return[i] <- as.numeric(prices$NDX.Adjusted[i]) / as.numeric(prices$NDX.Adjusted[i-1]) - 1
+  }
+  if(prices$final_signal_adj[i-1]==1){
+    optimized_return[i] <- 1 * (as.numeric(prices$Adjusted[i]) / as.numeric(prices$Adjusted[i-1]) - 1)
+  }
+  if(prices$final_signal_adj[i-1]==-1){
+    optimized_return[i] <- -1 * (as.numeric(prices$Adjusted[i]) / as.numeric(prices$Adjusted[i-1]) - 1)
+  }
+}
+
+prices$optimized_return <- optimized_return
+prices$current_return <- prices$Adjusted/lag(prices$Adjusted)-1
+prices$current_return[1] <- 0
+
+charts.PerformanceSummary(prices[,c("current_return",'optimized_return')])
+table.Stats(prices[,c("current_return",'optimized_return')])
+table.AnnualizedReturns(prices[,c("current_return",'optimized_return')])
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
