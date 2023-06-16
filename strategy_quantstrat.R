@@ -26,116 +26,273 @@ library(devtools)
 library(yahoofinancer)
 
 #rm(list = ls(all.names = T))
-#.blotter <- new.env() #create the required environments
-#.strategy <- new.env() #create the required environments
+.blotter <- new.env() #create the required environments
+.strategy <- new.env() #create the required environments
 
 # ___Inputs___
-initDate <- "2017-01-02" #Date of initiation
-from <- "2018-01-03"
-to <- "2023-05-26"
-initEq <- 1000 #Initial equity
-orderqty <- 100
+initDate <- "2020-01-02" #Date of initiation
+from <- "2021-06-03"
+to <- "2023-06-09"
+orderqty <- 1 # units stocks   orderqty = tradeSize / ClosePrice
+initEq <- 100 #Initial equity USD
 
-symbols <- c("MSFT", "IBM")
+symbols <- "MSFT"
 getSymbols(symbols, from = from, to = to, adjust = TRUE)
+datos <- MSFT
 
 #set the currency and the stock we are interested
 currency("USD")
-stock(symbols, currency="USD", multiplier=1)
 Sys.setenv(TZ="UTC") #setting up the timezone
+stock(symbols, currency="USD", multiplier=1)
 
 #-------------Initiate portfolio and account-----------
-strategy.st <- "luxor" #Name the strategy
-account.st <- "luxor"
-portfolio.st <- "luxor"
-rm.strat("luxor")
+strategy.st <- "strat1" #Name the strategy
+account.st <- "strat1"
+portfolio.st <- "strat1"
+rm.strat(strategy.st)
 
 #Initiate portfolio
 initPortf(name=portfolio.st, 
           symbols=symbols, 
-          #initDate=initDate, 
-          currency='USD')
+          initDate=initDate,
+          currency = "USD"
+          )
 
 #Initiate account
 initAcct(name=account.st, 
          portfolios=portfolio.st,    
-         #initDate=initDate, 
-         currency='USD', 
+         initDate=initDate, 
          initEq=initEq)
 
 #Initiate orders
 initOrders(portfolio=portfolio.st, 
-           symbols=symbols,
-           initDate=initDate)
+           initDate=initDate
+           )
 
 #Store all the events in the strategy
 strategy(strategy.st, store=TRUE)
 
-### indicators
+### ---Add Indicators---
+# DVO indicator
+# Declare the DVO function
+DVO <- function(HLC, navg = 2, percentlookback = 126) {
+  
+  # Compute the ratio between closing prices to the average of high and low
+  ratio <- Cl(HLC)/(Hi(HLC) + Lo(HLC))/2
+  
+  # Smooth out the ratio outputs using a moving average
+  avgratio <- SMA(ratio, n = navg)
+  
+  # Convert ratio into a 0-100 value using runPercentRank()
+  out <- runPercentRank(avgratio, n = percentlookback, exact.multiplier = 1) * 100
+  colnames(out) <- "DVO"
+  out
+}
+
+# Add the DVO indicator to your strategy
+add.indicator(strategy = strategy.st, 
+              name = "DVO", 
+              arguments = list(
+                HLC = quote(HLC(mktdata)), 
+                navg = 2, 
+                percentlookback = 126),
+              label = "DVO_2_126")
+
+
+# SMA indicators
 nfast <- 12
 nslow <- 26
-add.indicator(strategy.st, name = "SMA",
+# Add fast SMA indicator
+add.indicator(strategy.st, 
+              name = "SMA",
               arguments = list(
-                x = quote(Cl(mktdata)[,1]),
+                x = quote(Cl(mktdata)),
                 n = nfast
               ),
               label="nFast"
-)
-add.indicator(strategy.st, name="SMA",
+            )
+# Add slow SMA indicator
+add.indicator(strategy.st, 
+              name="SMA",
               arguments = list(
-                x = quote(Cl(mktdata)[,1]),
+                x = quote(Cl(mktdata)),
                 n = nslow
               ),
               label="nSlow"
-)
+            )
 
-add.signal(strategy.st, name='sigCrossover',
+# Add RSI_3 indicator to strategy.st
+add.indicator(strategy.st,
+              name = "RSI",
+              arguments = list(
+                price = quote(Cl(mktdata)),
+                n = 3     # RSI 3 function
+              ),
+              label = "RSI_3"
+            )
+
+# Write the calc_RSI_avg function
+calc_RSI_avg <- function(price, n1, n2) {
+  
+  # RSI 1 takes an input of the price and n1
+  RSI_1 <- RSI(price = price, n = n1)
+  
+  # RSI 2 takes an input of the price and n2
+  RSI_2 <- RSI(price = price, n = n2)
+  
+  # RSI_avg is the average of RSI_1 and RSI_2
+  RSI_avg <- (RSI_1 + RSI_2)/2
+  
+  # Your output of RSI_avg needs a column name of RSI_avg
+  colnames(RSI_avg) <- "RSI_avg"
+  return(RSI_avg)
+}
+
+# Add this function as RSI_3_4 to your strategy with n1 = 3 and n2 = 4
+add.indicator(strategy.st, 
+              name = "calc_RSI_avg", 
+              arguments = list(
+                price = quote(Cl(mktdata)), 
+                n1 = 3, 
+                n2 = 4), 
+              label = "RSI_3_4")
+
+
+# Use applyIndicators to test out your indicators
+prueba <- applyIndicators(strategy = strategy.st, mktdata = HLC(datos))
+
+
+##____Add Signals___
+# Implement a sigThreshold which specifies that DVO_2_126 must be 
+#less than 20, label it longthreshold
+add.signal(strategy.st, name = "sigThreshold", 
+           # Use the DVO_2_126 column
+           arguments = list(column = "DVO_2_126", 
+                            
+                            # The threshold is 20
+                            threshold = 20, 
+                            
+                            # We want the oscillator to be under this value
+                            relationship = "lt", 
+                            
+                            # We're interested in every instance that the oscillator is less than 20
+                            cross = FALSE), 
+           
+           # Label it longthreshold
+           label = "longthreshold")
+
+
+# Add a sigThreshold signal to your strategy that specifies that DVO_2_126 
+#must cross above 80 and label it thresholdexit
+add.signal(strategy.st, name = "sigThreshold", 
+           
+           # Reference the column of DVO_2_126
+           arguments = list(column = "DVO_2_126", 
+                            
+                            # Set a threshold of 80
+                            threshold = 80, 
+                            
+                            # The oscillator must be greater than 80
+                            relationship = "gt", 
+                            
+                            # We are interested only in the cross
+                            cross = TRUE), 
+           
+           # Label it thresholdexit
+           label = "thresholdexit")
+
+
+# Buy signal appears when SMA30 is greater than SMA200. longfilter is BUY
+add.signal(strategy.st, 
+           name='sigComparison',
            arguments = list(
              columns=c("nFast","nSlow"),
-             relationship="gte"
+             relationship="gt"
            ),
-           label='buy'
-)
-add.signal(strategy.st, name='sigCrossover',
+           label='longfilter'
+          )
+
+# Sell signals appears when SMA30 is less than SMA200. filterexit is SELL
+add.signal(strategy.st, 
+           name='sigCrossover',
            arguments = list(
              columns=c("nFast","nSlow"),
              relationship="lt"
            ),
-           label='sell'
-)
+           label='filterexit'
+          )
+
+# Add a sigFormula signal to your code specifying that both longfilter and 
+#longthreshold must be TRUE, label it longentry
+add.signal(strategy.st, 
+           name = "sigFormula",
+           
+           # Specify that longfilter and longthreshold must be TRUE
+           arguments = list(formula = "longfilter & longthreshold", 
+                            
+                            # Specify that cross must be TRUE
+                            cross = TRUE),
+           
+           # Label it longentry
+           label = "longentry")
+
+
+prueba_init <- applyIndicators(strategy.st, mktdata = OHLC(datos))
+prueba2 <- applySignals(strategy = strategy.st, mktdata = prueba_init)
 
 ### rules
 add.rule(strategy.st, name='ruleSignal',
-         arguments=list(sigcol='sell', sigval=TRUE,
+         arguments=list(sigcol='filterexit', 
+                        sigval=TRUE,
                         orderside='long' ,
                         ordertype='market',
                         orderqty='all',
-                        replace=TRUE
+                        replace=FALSE
          ),
          type='exit',
-         label='Exit2SHORT'
-)
+         label='Exit2SHORT',
+         path.dep=TRUE
+        )
 
 add.rule(strategy.st, name='ruleSignal',
-         arguments=list(sigcol='buy' , sigval=TRUE,
+         arguments=list(sigcol='longfilter', 
+                        sigval=TRUE,
                         orderside='long' ,
                         ordertype='market', 
                         orderqty=orderqty,
                         replace=FALSE
          ),
          type='enter',
-         label='EnterLONG'
-)
+         label='EnterLONG',
+         path.dep=TRUE
+        )
 
 out <- try(applyStrategy(strategy.st, portfolio.st))
-out
 
-#update
-updatePortf(strategy.st)
-updateAcct(strategy.st)
-updateEndEq(strategy.st)
+# Update
+# Update your portfolio (portfolio.st)
+updatePortf(portfolio.st)
 
+# Update your account (account.st)
+daterange <- time(getPortfolio(portfolio.st)$summary)[-1]
+daterange
+updateAcct(account.st, daterange)
 
+updateEndEq(account.st)
+
+# ------Profit Factor------
+# A profit factor above 1 means your strategy is profitable.
+# A profit factor below 1 means you should head back to the drawing board
+# Get the tradeStats for your portfolio
+tstats <- tradeStats(Portfolios = portfolio.st)
+
+# Print the profit factor
+tstats$Profit.Factor
+# This percent positive statistic means that approximately 71% of your 
+#trades returned a positive result.
+tstats$Percent.Positive 
+
+# plot
 for(symbol in symbols) {
   chart.Posn(Portfolio=portfolio.st,
              Symbol=symbol,
@@ -163,7 +320,7 @@ tab <- table.Arbitrary(rets,
                          "Calmar Ratio"))
 tab
 
-charts.PerformanceSummary(rets, colorset = bluefocus)
+charts.PerformanceSummary(rets, colorset = "#DB005B")
 
 
 

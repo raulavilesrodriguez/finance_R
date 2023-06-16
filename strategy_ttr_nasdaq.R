@@ -23,7 +23,7 @@ class(tabla)
 symbols <- tabla |> select(Company, Symbol)
 
 # ___Inputs___
-from <- "2020-01-01"
+from <- "2023-01-01"
 to <- "2023-06-05"
 
 stock <- symbols$Symbol[sample(1:nrow(symbols),1)]
@@ -76,8 +76,8 @@ summary(prices)
 #Interactive Plot
 highchart(type="stock") |> 
   hc_add_series(prices[,1:6]) |> 
-  hc_add_series(SMA((Cl(prices)),n=12),name="SMA(12)") |> 
-  hc_add_series(SMA((Cl(prices)),n=26),name="SMA(26)") |>
+  hc_add_series(SMA((prices$Close),n=12),name="SMA(12)") |> 
+  hc_add_series(SMA((prices$Close),n=26),name="SMA(26)") |>
   hc_title(text=paste0("<b>Prices company: ", symbols[which(symbols$Symbol == stock),1], "</b>"))
 
 chartSeries(prices[,1:6], subset = "2022-01::2023-06-05")
@@ -240,11 +240,20 @@ charts.PerformanceSummary(prices[,c("current_return",'optimized_return')])
 table.Stats(prices[,c("current_return",'optimized_return')])
 table.AnnualizedReturns(prices[,c("current_return",'optimized_return')])
 
+# Plot final signal
+chartSeries(prices[,1:6], subset = "2023-01::2023-06-05")
+addTA(prices$final_signal_adj, type='S', col='#00DFA2')
 
-
-
-
-
+#Interactive Plot
+highchart(type="stock") |> 
+  hc_yAxis_multiples(list(title = list(text = "Price"), opposite = FALSE),
+                     list(showLastLabel = FALSE, opposite = TRUE, title = list(text = "Signal"))) |>
+  hc_add_series(prices[,1:6]) |> 
+  hc_add_series(SMA((prices$Close),n=12),name="SMA(12)") |> 
+  hc_add_series(SMA((prices$Close),n=26),name="SMA(26)") |>
+  hc_add_series(prices$final_signal_adj, name="Estrategia", yAxis = 1, color = "#FCC72C") |>
+  hc_title(text=paste0("<b>Prices company: ", symbols[which(symbols$Symbol == stock),1], "</b>"))
+  
 
 
 
