@@ -30,11 +30,12 @@ library(yahoofinancer)
 .strategy <- new.env() #create the required environments
 
 # ___Inputs___
-initDate <- "2020-01-02" #Date of initiation
-from <- "2021-06-03"
+initDate <- "2000-01-02" #Date of initiation
+from <- "2016-06-03"
 to <- "2023-06-09"
 orderqty <- 1 # units stocks   orderqty = tradeSize / ClosePrice
 initEq <- 100 #Initial equity USD
+tradesize <- 276 #USD
 
 symbols <- "MSFT"
 getSymbols(symbols, from = from, to = to, adjust = TRUE)
@@ -72,10 +73,10 @@ initOrders(portfolio=portfolio.st,
 #Store all the events in the strategy
 strategy(strategy.st, store=TRUE)
 
-### ---Add Indicators---
+### -------Add Indicators------
 # DVO indicator
 # Declare the DVO function
-DVO <- function(HLC, navg = 2, percentlookback = 126) {
+DVO <- function(HLC, navg = 2, percentlookback = 20) {
   
   # Compute the ratio between closing prices to the average of high and low
   ratio <- Cl(HLC)/(Hi(HLC) + Lo(HLC))/2
@@ -95,7 +96,7 @@ add.indicator(strategy = strategy.st,
               arguments = list(
                 HLC = quote(HLC(mktdata)), 
                 navg = 2, 
-                percentlookback = 126),
+                percentlookback = 20),
               label = "DVO_2_126")
 
 
@@ -120,42 +121,6 @@ add.indicator(strategy.st,
               ),
               label="nSlow"
             )
-
-# Add RSI_3 indicator to strategy.st
-add.indicator(strategy.st,
-              name = "RSI",
-              arguments = list(
-                price = quote(Cl(mktdata)),
-                n = 3     # RSI 3 function
-              ),
-              label = "RSI_3"
-            )
-
-# Write the calc_RSI_avg function
-calc_RSI_avg <- function(price, n1, n2) {
-  
-  # RSI 1 takes an input of the price and n1
-  RSI_1 <- RSI(price = price, n = n1)
-  
-  # RSI 2 takes an input of the price and n2
-  RSI_2 <- RSI(price = price, n = n2)
-  
-  # RSI_avg is the average of RSI_1 and RSI_2
-  RSI_avg <- (RSI_1 + RSI_2)/2
-  
-  # Your output of RSI_avg needs a column name of RSI_avg
-  colnames(RSI_avg) <- "RSI_avg"
-  return(RSI_avg)
-}
-
-# Add this function as RSI_3_4 to your strategy with n1 = 3 and n2 = 4
-add.indicator(strategy.st, 
-              name = "calc_RSI_avg", 
-              arguments = list(
-                price = quote(Cl(mktdata)), 
-                n1 = 3, 
-                n2 = 4), 
-              label = "RSI_3_4")
 
 
 # Use applyIndicators to test out your indicators
@@ -240,34 +205,70 @@ add.signal(strategy.st,
 prueba_init <- applyIndicators(strategy.st, mktdata = OHLC(datos))
 prueba2 <- applySignals(strategy = strategy.st, mktdata = prueba_init)
 
-### rules
+###----RULES----
+# Fill in the rule's type as exit
 add.rule(strategy.st, name='ruleSignal',
          arguments=list(sigcol='filterexit', 
                         sigval=TRUE,
                         orderside='long' ,
                         ordertype='market',
                         orderqty='all',
-                        replace=FALSE
+                        replace=FALSE,
+                        prefer = 'Open'
          ),
          type='exit',
-         label='Exit2SHORT',
-         path.dep=TRUE
+         label='Exit2SHORT'
         )
 
-add.rule(strategy.st, name='ruleSignal',
-         arguments=list(sigcol='longfilter', 
-                        sigval=TRUE,
-                        orderside='long' ,
-                        ordertype='market', 
-                        orderqty=orderqty,
-                        replace=FALSE
-         ),
-         type='enter',
-         label='EnterLONG',
-         path.dep=TRUE
-        )
+osMaxDollar <- function (data, timestamp, orderqty, ordertype, orderside, portfolio, 
+                         symbol, prefer = "Open", tradeSize, maxSize, integerQty = TRUE, 
+                         ...) 
+{
+  pos <- getPosQty(portfolio, symbol, timestamp)
+  if (prefer == "Close") {
+    price <- as.numeric(Cl(mktdata[timestamp, ]))
+  }
+  else {
+    price <- as.numeric(Op(mktdata[timestamp, ]))
+  }
+  posVal <- pos * price
+  if (orderside == "short") {
+    dollarsToTransact <- max(tradeSize, maxSize - posVal)
+    if (dollarsToTransact > 0) {
+      dollarsToTransact = 0
+    }
+  }
+  else {
+    dollarsToTransact <- min(tradeSize, maxSize - posVal)
+    if (dollarsToTransact < 0) {
+      dollarsToTransact = 0
+    }
+  }
+  qty <- dollarsToTransact/price
+  if (integerQty) {
+    qty <- trunc(qty)
+  }
+  return(qty)
+}
 
-out <- try(applyStrategy(strategy.st, portfolio.st))
+# Add a rule that uses an osFUN to size an entry position
+add.rule(strategy = strategy.st, name = "ruleSignal",
+         arguments = list(sigcol = "longentry", sigval = TRUE, ordertype = "market",
+                          orderside = "long", replace = FALSE, prefer = "Open",
+                          
+                          # Use the osFUN called osMaxDollar
+                          osFUN = osMaxDollar,
+                          
+                          # The tradeSize argument should be equal to tradesize (defined earlier)
+                          tradeSize = tradesize,
+                          
+                          # The maxSize argument should be equal to tradesize as well
+                          maxSize = tradesize),
+         type = "enter")
+
+
+out <- applyStrategy(strategy.st, portfolio.st)
+
 
 # Update
 # Update your portfolio (portfolio.st)
@@ -322,5 +323,20 @@ tab
 
 charts.PerformanceSummary(rets, colorset = "#DB005B")
 
+
+# Cash Sharpe ratio
+portpl <- .blotter$portfolio.strat1$summary$Net.Trading.PL
+SharpeRatio.annualized(portpl, geometric = FALSE)
+
+# Returns Sharpe ratio 
+# Get instrument returns
+instrets <- PortfReturns(portfolio.st)
+# Compute Sharpe ratio from returns
+SharpeRatio.annualized(instrets, geometric = FALSE)
+
+summary(getStrategy(portfolio.st))
+trades <- getTxns(portfolio.st, symbols)
+trades <- data.frame(trades)
+veamos <- cbind(mktdata, trades)
 
 
